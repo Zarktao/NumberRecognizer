@@ -1,0 +1,270 @@
+<!DOCTYPE HTML>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+  <title>笔画识别·人机交互作业</title>
+  <link href="bootstrap.min.css" rel="stylesheet" type="text/css"/>
+  <style type="text/css">
+    .dd {
+      display: none;
+    }
+
+    #Content {
+      margin: 20px 20px 20px 20px;
+    }
+
+    #myCanvas {
+      margin: auto;
+      clear: both;
+    }
+  </style>
+  <script type="text/javascript" src="canvas.text.js"></script>
+  <script type="text/javascript" src="jquery-1.7.2.min.js"></script>
+  <script type="text/javascript" src="ndollar.js"></script>
+  <script type="text/javascript">
+    var _isDown, _points, _strokes, _r, _g, _rc; // global variables
+    function onLoadEvent() {
+      _points = new Array(); // point array for current stroke
+      _strokes = new Array(); // array of point arrays
+      _r = new NDollarRecognizer(document.getElementById('useBoundedRotationInvariance').checked);
+
+      var canvas = document.getElementById('myCanvas');
+      _g = canvas.getContext('2d');
+      _g.lineWidth = 3;
+      _g.font = "16px Gentilis";
+      _rc = getCanvasRect(canvas); // canvas rect on page
+      _g.fillStyle = "rgb(221,221,221)";
+      _g.fillRect(0, 0, _rc.width, 20);
+
+      _isDown = false;
+    }
+    function getCanvasRect(canvas) {
+      var w = canvas.width;
+      var h = canvas.height;
+
+      var cx = canvas.offsetLeft;
+      var cy = canvas.offsetTop;
+      while (canvas.offsetParent != null) {
+        canvas = canvas.offsetParent;
+        cx += canvas.offsetLeft;
+        cy += canvas.offsetTop;
+      }
+      return {x: cx, y: cy, width: w, height: h};
+    }
+    function getScrollY() {
+      var scrollY = $(window).scrollTop();
+      return scrollY;
+    }
+    //
+    // Checkbox option for using limited rotation invariance requires rebuilding the recognizer.
+    //
+    function confirmRebuild() {
+      if (confirm("Changing this option will discard any user-defined gestures you may have made.")) {
+        _r = new NDollarRecognizer(document.getElementById('useBoundedRotationInvariance').checked);
+      }
+      else {
+        var chk = document.getElementById('useBoundedRotationInvariance');
+        chk.checked = !chk.checked; // undo click
+      }
+    }
+    //
+    // Mouse Events
+    //
+    function mouseDownEvent(x, y, button) {
+      document.onselectstart = function () {
+        return false;
+      } // disable drag-select
+      document.onmousedown = function () {
+        return false;
+      } // disable drag-select
+      if (button <= 1) {
+        _isDown = true;
+        x -= _rc.x;
+        y -= _rc.y - getScrollY();
+        if (_points.length == 0) {
+          _strokes.length = 0;
+          _g.clearRect(0, 0, _rc.width, _rc.height);
+        }
+        _points.length = 1; // clear
+        _points[0] = new Point(x, y);
+        drawText("记录笔画 #" + (_strokes.length + 1) + "...");
+        var clr = "rgb(" + rand(0, 200) + "," + rand(0, 200) + "," + rand(0, 200) + ")";
+        _g.strokeStyle = clr;
+        _g.fillStyle = clr;
+        _g.fillRect(x - 4, y - 3, 9, 9);
+      }
+      else if (button == 2) {
+        drawText("正在识别...");
+      }
+    }
+    function mouseMoveEvent(x, y, button) {
+      if (_isDown) {
+        x -= _rc.x;
+        y -= _rc.y - getScrollY();
+        _points[_points.length] = new Point(x, y); // append
+        drawConnectedPoint(_points.length - 2, _points.length - 1);
+      }
+    }
+    function mouseUpEvent(x, y, button) {
+      document.onselectstart = function () {
+        return true;
+      } // enable drag-select
+      document.onmousedown = function () {
+        return true;
+      } // enable drag-select
+      if (button <= 1) {
+        if (_isDown) {
+          _isDown = false;
+          _strokes[_strokes.length] = _points.slice(); // add new copy to set
+          drawText("笔画 #" + _strokes.length + " 已记录.");
+        }
+      }
+      else if (button == 2) // segmentation with right-click
+      {
+        if (_strokes.length > 1 || (_strokes.length == 1 && _strokes[0].length >= 10)) {
+          var result = _r.Recognize(_strokes, document.getElementById('useBoundedRotationInvariance').checked, document.getElementById('requireSameNoOfStrokes').checked, document.getElementById('useProtractor').checked);
+          drawText("识别结果: " + result.Name + " (" + round(result.Score, 2) + ").");
+        }
+        else {
+          drawText("笔画过少，请重试。");
+        }
+        _points.length = 0; // clear and signal to clear strokes on next mousedown
+      }
+    }
+    function drawConnectedPoint(from, to) {
+      _g.beginPath();
+      _g.moveTo(_points[from].X, _points[from].Y);
+      _g.lineTo(_points[to].X, _points[to].Y);
+      _g.closePath();
+      _g.stroke();
+    }
+    function drawText(str) {
+      _g.fillStyle = "rgb(221,221,221)";
+      _g.fillRect(0, 0, _rc.width, 20);
+      _g.fillStyle = "rgb(0,0,255)";
+      _g.fillText(str, 1, 14);
+    }
+    function rand(low, high) {
+      return Math.floor((high - low + 1) * Math.random()) + low;
+    }
+    function round(n, d) // round 'n' to 'd' decimals
+    {
+      d = Math.pow(10, d);
+      return Math.round(n * d) / d
+    }
+    //
+    // Multistroke Adding and Clearing
+    //
+    function onClickAddExisting() {
+      if (_strokes.length > 0) {
+        if (_strokes.length < 5 || confirm("共有 " + _strokes.length + " 笔画, 添加这个图形需要一定的时间。是否确认执行？")) {
+          var multistrokes = document.getElementById('multistrokes');
+          var name = multistrokes[multistrokes.selectedIndex].value;
+          var num = _r.AddGesture(name, document.getElementById('useBoundedRotationInvariance').checked, _strokes);
+          drawText("\"" + name + "\" 类型的图形已添加. 现在共有 \"" + name + "\" 类型的图形: " + num + "种.");
+          _points.length = 0; // clear and signal to clear strokes on next mousedown
+        }
+      }
+    }
+    function onClickAddCustom() {
+      var name = document.getElementById('custom').value;
+      if (_strokes.length > 0 && name.length > 0) {
+        if (_strokes.length < 5 || confirm("共有 " + _strokes.length + " 笔画,  添加这个图形需要一定的时间。是否确认执行？")) {
+          var num = _r.AddGesture(name, document.getElementById('useBoundedRotationInvariance').checked, _strokes);
+          drawText("\"" + name + "\" 已添加. 类型 \"" + name + "\" 已经定义了: " + num + "个图形。");
+          _points.length = 0; // clear and signal to clear strokes on next mousedown
+        }
+      }
+    }
+    function onClickCustom() {
+      document.getElementById('custom').select();
+    }
+    function onClickDelete() {
+      var num = _r.DeleteUserGestures(); // deletes any user-defined multistrokes
+      alert("所有用户定义图形已删除. 只保留了预定义的 " + num + " 钟类型.");
+      _points.length = 0; // clear and signal to clear strokes on next mousedown
+    }
+    function onClickClearStrokes() {
+      _points.length = 0; // clear and signal to clear strokes on next mousedown
+      _g.clearRect(0, 0, _rc.width, _rc.height);
+      drawText("绘图区已清空。");
+    }
+    // -->
+  </script>
+</head>
+<body onload="onLoadEvent()">
+<div class="dd">
+  <input type="radio" name="search" id="useGSS" checked>
+  <span style="font-weight:bold">Use Golden Section Search <i>(original)</i></span>
+  </input><br/>
+  <input type="radio" name="search" id="useProtractor">
+  <span style="font-weight:bold">Use Protractor <i>(faster)</i></span>
+  </input><br/>
+  <input type="checkbox" id="useBoundedRotationInvariance" onclick="confirmRebuild()">
+  <span style="font-weight:bold">Use bounded rotation invariance (&plusmn;45&deg;)</span>
+  </input><br/>
+  <input type="checkbox" id="requireSameNoOfStrokes">
+  <span style="font-weight:bold">Require same no. of component strokes</span>
+  </input>
+</div>
+<div id="Content">
+  <div class="page-header">
+    <h1>笔画识别</h1>
+  </div>
+  <!-- Editing area below stroking canvas area -->
+  <div class="col-md-4">
+    <form role="form">
+      <div class="form-group">
+        <label>请在右侧绘图区域绘制要识别的图像</label>
+        <label>左键为画笔，右键单击识别</label>
+      </div>
+      <div class="form-group">
+        <button type="button" class="btn btn-success" onclick="onClickClearStrokes()">清空绘图区</button>
+      </div>
+      <div class="form-group">
+        <button type="button" class="btn btn-danger" onclick="onClickDelete()">删除所有添加内容</button>
+      </div>
+      <div class="form-group">
+        <label>向目前已存在的类型增加样本</label>
+        <div class="input-group">
+          <select id="multistrokes" onkeypress="if (event.keyCode == 13) onClickAddExisting()" class="form-control">
+            <option selected value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="0">0</option>
+          </select>
+          <span class="input-group-btn">
+							<button class="btn btn-default" type="button" onclick="onClickAddExisting()">添加</button>
+						</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>增加一个新的类型</label>
+        <div class="input-group">
+          <input type="text" class="form-control" id="custom" onclick="onClickCustom()"
+                 onkeypress="if (event.keyCode == 13) onClickAddCustom()">
+          <span class="input-group-btn">
+							<button class="btn btn-default" type="button" onclick="onClickAddCustom()">添加</button>
+						</span>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div class="col-md-4 alert alert-success">
+    <canvas id="myCanvas" width="420" height="400" style="background-color:#FFFFFF"
+            onmousedown="mouseDownEvent(event.clientX, event.clientY, event.button)"
+            onmousemove="mouseMoveEvent(event.clientX, event.clientY, event.button)"
+            onmouseup="mouseUpEvent(event.clientX, event.clientY, event.button)"
+            oncontextmenu="return false;">
+      <span style="background-color:#ffff88;">The &lt;canvas&gt; element is not supported by this browser.</span>
+    </canvas>
+  </div>
+</div>
+</body>
+</html>
